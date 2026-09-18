@@ -1,15 +1,13 @@
 """
-Kalkulator Harga Wajar Saham
-============================
+Kalkulator Harga Wajar Saham - Streamlit Web Interface
+========================================================
 
-Program terminal interaktif untuk menghitung estimasi harga wajar (nilai
+Program web interaktif untuk menghitung estimasi harga wajar (nilai
 intrinsik) sebuah saham dengan 3 metode:
 
   1. Benjamin Graham  -> Graham Number dari EPS & BVPS
   2. Discounted Cash Flow (DCF) -> Free Cash Flow, WACC, Growth Rate
   3. Relative Valuation -> Rasio PE dan PBV
-
-Semua data dimasukkan manual oleh pengguna lewat input terminal.
 
 Catatan: hasil perhitungan adalah estimasi berbasis asumsi yang Anda
 masukkan, BUKAN rekomendasi jual/beli.
@@ -17,6 +15,8 @@ masukkan, BUKAN rekomendasi jual/beli.
 
 import re
 import logging
+import streamlit as st
+import pandas as pd
 try:
     import yfinance as yf
     import requests
@@ -60,7 +60,9 @@ SATUAN = {
     "4": ("Triliun (10^12)", 1_000_000_000_000.0),
 }
 
-riwayat = []  # kumpulan hasil perhitungan selama sesi berjalan
+# Initialize session state
+if 'riwayat' not in st.session_state:
+    st.session_state.riwayat = []
 
 
 # ---------------------------------------------------------------------------
@@ -136,21 +138,31 @@ def tampilkan_data_yfinance(data):
     if not data:
         return
 
-    sub(f"DATA DARI YFINANCE: {data['ticker']} ({data['nama']})")
-    if data.get('eps') is not None:
-        print(f"  EPS                  : {rp(data['eps'])}")
-    if data.get('book_value') is not None:
-        print(f"  Book Value per share : {rp(data['book_value'])}")
-    if data.get('price') is not None:
-        print(f"  Harga pasar saat ini  : {rp(data['price'])}")
-    if data.get('fcf') is not None:
-        print(f"  Free Cash Flow       : {rp_ringkas(data['fcf'])}")
-    if data.get('utang') is not None:
-        print(f"  Total Utang          : {rp_ringkas(data['utang'])}")
-    if data.get('kas') is not None:
-        print(f"  Kas & Setara         : {rp_ringkas(data['kas'])}")
+    st.subheader(f"📊 Data dari yfinance: {data['ticker']} ({data['nama']})")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if data.get('eps') is not None:
+            st.metric("EPS", rp(data['eps']))
+    with col2:
+        if data.get('book_value') is not None:
+            st.metric("Book Value/share", rp(data['book_value']))
+    with col3:
+        if data.get('price') is not None:
+            st.metric("Harga pasar", rp(data['price']))
+
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        if data.get('fcf') is not None:
+            st.metric("Free Cash Flow", rp_ringkas(data['fcf']))
+    with col5:
+        if data.get('utang') is not None:
+            st.metric("Total Utang", rp_ringkas(data['utang']))
+    with col6:
+        if data.get('kas') is not None:
+            st.metric("Kas & Setara", rp_ringkas(data['kas']))
+
     if data.get('saham_beredar') is not None:
-        print(f"  Saham Beredar        : {fmt(data['saham_beredar'], 0)} lembar")
+        st.info(f"Saham Beredar: {fmt(data['saham_beredar'], 0)} lembar")
 
 
 # ---------------------------------------------------------------------------
@@ -180,41 +192,27 @@ def fmt_default(nilai):
     return f"{nilai:g}".replace(".", ",")
 
 
-def minta_float(label, minimum=None, maksimum=None, default=None, param_name=None):
-    """Baca satu bilangan dari terminal sampai valid.
+def minta_float_st(label, minimum=None, maksimum=None, default=None, param_name=None, step=0.01):
+    """Widget input untuk bilangan menggunakan Streamlit.
 
     Args:
-        label: Label pertanyaan untuk user
-        minimum: Nilai minimum yang diterima
-        maksimum: Nilai maksimum yang diterima
-        default: Nilai default jika user tidak input
-        param_name: Nama parameter untuk validasi khusus (wacc, growth_rate, pe_ratio, pbv_ratio)
+        label: Label input
+        minimum: Nilai minimum
+        maksimum: Nilai maksimum
+        default: Nilai default
+        param_name: Nama parameter untuk validasi
+        step: Langkah perubahan slider
     """
-    petunjuk = f" [{fmt_default(default)}]" if default is not None else ""
-    while True:
-        try:
-            mentah = input(f"  {label}{petunjuk}: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n\nInput dibatalkan. Program berhenti.")
-            raise SystemExit(0)
+    try:
+        nilai = st.number_input(
+            label,
+            value=float(default) if default is not None else 0.0,
+            min_value=float(minimum) if minimum is not None else None,
+            max_value=float(maksimum) if maksimum is not None else None,
+            step=step,
+            format="%.2f"
+        )
 
-        if not mentah:
-            if default is not None:
-                return float(default)
-            print("  ! Nilai tidak boleh kosong.")
-            continue
-
-        try:
-            nilai = float(normalisasi_angka(mentah))
-        except ValueError:
-            print("  ! Bukan angka yang valid. Contoh: 1250  atau  1.250,75")
-            continue
-
-        if nilai != nilai or nilai in (float("inf"), float("-inf")):
-            print("  ! Angka tidak valid.")
-            continue
-
-        # Gunakan validation module jika tersedia dan param_name diberikan
         if VALIDATION_AVAILABLE and param_name:
             try:
                 if param_name.lower() == 'wacc':
@@ -226,41 +224,30 @@ def minta_float(label, minimum=None, maksimum=None, default=None, param_name=Non
                 elif param_name.lower() == 'pbv_ratio':
                     nilai = validate_pbv_ratio(nilai)
             except ValueError as e:
-                print(f"  ! {e}")
-                continue
+                st.error(str(e))
+                return None
 
-        # Fallback ke manual range checking
-        if minimum is not None and nilai < minimum:
-            print(f"  ! Nilai minimal {fmt(minimum)}.")
-            continue
-        if maksimum is not None and nilai > maksimum:
-            print(f"  ! Nilai maksimal {fmt(maksimum)}.")
-            continue
-        if POLA_RIBUAN.match(mentah.replace(" ", "").replace("_", "")):
-            print(f"  -> dibaca sebagai {fmt(nilai, 0)}"
-                  f" (titik dianggap pemisah ribuan; pakai koma untuk desimal)")
         return nilai
+    except Exception as e:
+        st.error(f"Error dalam input: {e}")
+        return None
 
 
-def minta_int(label, minimum=None, maksimum=None, default=None):
-    while True:
-        nilai = minta_float(label, minimum, maksimum, default)
-        if abs(nilai - round(nilai)) > 1e-9:
-            print("  ! Harus bilangan bulat.")
-            continue
-        return int(round(nilai))
+def minta_int_st(label, minimum=None, maksimum=None, default=None):
+    """Widget input untuk bilangan bulat menggunakan Streamlit."""
+    return int(st.number_input(
+        label,
+        value=int(default) if default is not None else 0,
+        min_value=int(minimum) if minimum is not None else None,
+        max_value=int(maksimum) if maksimum is not None else None,
+        step=1,
+        format="%d"
+    ))
 
 
-def minta_pilihan(label, pilihan_valid):
-    while True:
-        try:
-            jawab = input(f"{label} ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n\nInput dibatalkan. Program berhenti.")
-            raise SystemExit(0)
-        if jawab in pilihan_valid:
-            return jawab
-        print(f"  ! Pilihan tidak dikenal. Pilih salah satu: {', '.join(pilihan_valid)}")
+def minta_pilihan_st(label, pilihan_valid, index=0):
+    """Widget selectbox menggunakan Streamlit."""
+    return st.selectbox(label, pilihan_valid, index=index)
 
 
 def pilih_satuan(keterangan):
@@ -295,13 +282,11 @@ def rp_ringkas(x):
 
 
 def judul(teks):
-    print("\n" + "=" * 62)
-    print(teks.center(62))
-    print("=" * 62)
+    st.markdown(f"# {teks}")
 
 
 def sub(teks):
-    print(f"\n-- {teks} " + "-" * max(0, 58 - len(teks)))
+    st.markdown(f"## {teks}")
 
 
 # ---------------------------------------------------------------------------
@@ -316,39 +301,59 @@ def minta_harga_pasar():
 
 
 def tampilkan_kesimpulan(metode, harga_wajar, harga_pasar):
-    sub("HASIL")
-    print(f"  Metode            : {metode}")
-    print(f"  Harga wajar/lembar: {rp(harga_wajar)}")
+    sub("Hasil Perhitungan")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Metode", metode[:30])
+    with col2:
+        st.metric("Harga Wajar/lembar", rp(harga_wajar), delta=None)
 
     if harga_wajar <= 0:
-        print("\n  Harga wajar <= 0. Berdasarkan asumsi yang dimasukkan, saham ini")
-        print("  tidak punya nilai wajar positif (cek kembali data/asumsi Anda).")
-        riwayat.append((metode, harga_wajar, harga_pasar))
+        st.error("❌ Harga wajar <= 0. Berdasarkan asumsi yang dimasukkan, saham ini tidak punya nilai wajar positif. Cek kembali data/asumsi Anda.")
+        st.session_state.riwayat.append((metode, harga_wajar, harga_pasar))
         return
 
     harga_beli_ideal = harga_wajar * (1 - MOS_DEFAULT / 100)
-    print(f"  Harga beli ideal  : {rp(harga_beli_ideal)}  (MOS {fmt(MOS_DEFAULT, 0)}%)")
+    st.metric("Harga Beli Ideal", f"{rp(harga_beli_ideal)} (MOS {fmt(MOS_DEFAULT, 0)}%)")
 
     if harga_pasar > 0:
         mos = (harga_wajar - harga_pasar) / harga_wajar * 100
         upside = (harga_wajar - harga_pasar) / harga_pasar * 100
-        print(f"  Harga pasar       : {rp(harga_pasar)}")
-        print(f"  Margin of safety  : {fmt(mos)}%")
-        print(f"  Potensi upside    : {fmt(upside)}%")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Harga Pasar", rp(harga_pasar))
+        with col2:
+            st.metric("Margin of Safety", f"{fmt(mos)}%")
+        with col3:
+            st.metric("Potensi Upside", f"{fmt(upside)}%")
 
         if mos >= MOS_DEFAULT:
-            status = "UNDERVALUED - diskon cukup besar terhadap nilai wajar"
+            status = "✅ UNDERVALUED - diskon cukup besar terhadap nilai wajar"
+            status_color = "success"
         elif mos > 0:
-            status = "SEDIKIT DI BAWAH nilai wajar - margin of safety masih tipis"
+            status = "⚠️ SEDIKIT DI BAWAH nilai wajar - margin of safety masih tipis"
+            status_color = "warning"
         elif mos > -10:
-            status = "WAJAR / FAIRLY VALUED - harga mendekati nilai wajar"
+            status = "⚪ WAJAR / FAIRLY VALUED - harga mendekati nilai wajar"
+            status_color = "info"
         else:
-            status = "OVERVALUED - harga di atas nilai wajar"
-        print(f"  Kesimpulan        : {status}")
-    else:
-        print("  Harga pasar       : (tidak diisi, perbandingan dilewati)")
+            status = "❌ OVERVALUED - harga di atas nilai wajar"
+            status_color = "error"
 
-    riwayat.append((metode, harga_wajar, harga_pasar))
+        if status_color == "success":
+            st.success(status)
+        elif status_color == "warning":
+            st.warning(status)
+        elif status_color == "error":
+            st.error(status)
+        else:
+            st.info(status)
+    else:
+        st.warning("⚠️ Harga pasar tidak diisi, perbandingan dilewati")
+
+    st.session_state.riwayat.append((metode, harga_wajar, harga_pasar))
 
 
 # ---------------------------------------------------------------------------
@@ -356,90 +361,109 @@ def tampilkan_kesimpulan(metode, harga_wajar, harga_pasar):
 # ---------------------------------------------------------------------------
 
 def metode_graham():
-    judul("METODE 1: BENJAMIN GRAHAM (GRAHAM NUMBER)")
-    print("""
-  Rumus : Harga Wajar = akar( 22,5 x EPS x BVPS )
+    judul("Benjamin Graham (Graham Number)")
 
-  Angka 22,5 berasal dari batas konservatif Graham: PER maksimal 15
-  dan PBV maksimal 1,5  (15 x 1,5 = 22,5).
+    st.markdown("""
+    **Rumus:** Harga Wajar = √(22,5 × EPS × BVPS)
 
-  EPS  = Earning Per Share  = laba bersih / jumlah saham beredar
-  BVPS = Book Value / Share = total ekuitas / jumlah saham beredar
+    Angka 22,5 berasal dari batas konservatif Graham: PER maksimal 15 dan PBV maksimal 1,5 (15 × 1,5 = 22,5).
 
-  Syarat: EPS dan BVPS harus positif (perusahaan untung & ekuitas positif).
-""")
-    sub("INPUT DATA")
+    - **EPS** = Earning Per Share = laba bersih / jumlah saham beredar
+    - **BVPS** = Book Value / Share = total ekuitas / jumlah saham beredar
 
-    pilihan_mode = ["1", "2", "3"] if yf else ["1", "2"]
-    print("  Pilihan input data:")
-    print("    1. Input langsung EPS & BVPS")
-    print("    2. Hitung dari laba / ekuitas / saham beredar")
+    ⚠️ **Syarat:** EPS dan BVPS harus positif (perusahaan untung & ekuitas positif).
+    """)
+
+    sub("Pilih Cara Input Data")
+
+    pilihan_mode = ["Input langsung EPS & BVPS", "Hitung dari laba/ekuitas/saham beredar"]
     if yf:
-        print("    3. Ambil data otomatis dari yfinance (BBCA.JK, ASII.JK, dll)")
+        pilihan_mode.append("Ambil data otomatis dari yfinance")
 
-    cara = minta_pilihan("  Pilih opsi (1-3):", pilihan_mode)
+    cara = st.radio("", pilihan_mode, index=0, horizontal=True)
 
-    if cara == "1":
-        eps = minta_float("EPS - laba per lembar saham (Rp)")
-        bvps = minta_float("BVPS - nilai buku per lembar saham (Rp)")
-    elif cara == "2":
-        pengali_l, _ = pilih_satuan("laba bersih & total ekuitas")
-        laba = minta_float("Laba bersih setahun") * pengali_l
-        ekuitas = minta_float("Total ekuitas (book value)") * pengali_l
-        saham = minta_float("Jumlah saham beredar (lembar)", minimum=1)
-        eps = laba / saham
-        bvps = ekuitas / saham
-        print(f"\n  EPS  = {rp_ringkas(laba)} / {fmt(saham, 0)} lembar = {rp(eps)}")
-        print(f"  BVPS = {rp_ringkas(ekuitas)} / {fmt(saham, 0)} lembar = {rp(bvps)}")
-    else:  # cara == "3", ambil dari yfinance
-        while True:
+    col1, col2 = st.columns(2)
+
+    if cara == pilihan_mode[0]:  # Input langsung
+        with col1:
+            eps = minta_float_st("EPS - laba per lembar saham (Rp)", default=100)
+        with col2:
+            bvps = minta_float_st("BVPS - nilai buku per lembar saham (Rp)", default=500)
+
+    elif cara == pilihan_mode[1]:  # Hitung dari laba/ekuitas
+        satuan_list = list(SATUAN.values())
+        satuan_nama = st.selectbox("Satuan untuk laba & ekuitas", [x[0] for x in satuan_list])
+        pengali = dict((v[0], v[1]) for v in SATUAN.values())[satuan_nama]
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            laba = minta_float_st("Laba bersih setahun", default=1000)
+        with col2:
+            ekuitas = minta_float_st("Total ekuitas (book value)", default=10000)
+        with col3:
+            saham = minta_float_st("Jumlah saham beredar (lembar)", minimum=1, default=100)
+
+        laba *= pengali
+        ekuitas *= pengali
+        eps = laba / saham if saham > 0 else 0
+        bvps = ekuitas / saham if saham > 0 else 0
+
+        st.write(f"**EPS** = {rp_ringkas(laba)} / {fmt(saham, 0)} lembar = {rp(eps)}")
+        st.write(f"**BVPS** = {rp_ringkas(ekuitas)} / {fmt(saham, 0)} lembar = {rp(bvps)}")
+
+    else:  # Ambil dari yfinance
+        ticker_input = st.text_input("Kode saham (contoh: BBCA.JK, ASII.JK):", "BBCA.JK")
+        if ticker_input:
             try:
-                ticker_input = input("  Kode saham (contoh: BBCA.JK, ASII.JK): ").strip()
                 if VALIDATION_AVAILABLE:
                     ticker = validate_ticker(ticker_input)
                 else:
                     ticker = ticker_input.upper()
-                break
+
+                if st.button("📥 Ambil data dari yfinance"):
+                    data_yf = ambil_data_yfinance(ticker)
+                    if data_yf and data_yf.get('eps') is not None and data_yf.get('book_value') is not None:
+                        tampilkan_data_yfinance(data_yf)
+                        eps = data_yf['eps']
+                        bvps = data_yf['book_value']
+                        st.success(f"✓ Data EPS dan BVPS berhasil diambil dari yfinance")
+                    else:
+                        st.error(f"❌ Data tidak lengkap dari yfinance untuk {ticker}.")
+                        with col1:
+                            eps = minta_float_st("EPS - laba per lembar saham (Rp)", default=100)
+                        with col2:
+                            bvps = minta_float_st("BVPS - nilai buku per lembar saham (Rp)", default=500)
             except ValueError as e:
-                print(f"  ! {e}")
-                continue
-        data_yf = ambil_data_yfinance(ticker)
+                st.error(f"Error: {e}")
+                return
 
-        if not data_yf or data_yf.get('eps') is None or data_yf.get('book_value') is None:
-            print(f"\n  ! Data tidak lengkap dari yfinance untuk {ticker}.")
-            print("  Lanjut dengan input manual.")
-            eps = minta_float("EPS - laba per lembar saham (Rp)")
-            bvps = minta_float("BVPS - nilai buku per lembar saham (Rp)")
-        else:
-            tampilkan_data_yfinance(data_yf)
-            eps = data_yf['eps']
-            bvps = data_yf['book_value']
-            print(f"\n  ! Data EPS dan BVPS sudah diambil dari yfinance.")
-
-    harga_pasar = minta_harga_pasar()
+    harga_pasar = minta_float_st("Harga pasar saat ini per lembar (isi 0 untuk melewati)", minimum=0, default=0)
 
     if eps <= 0 or bvps <= 0:
-        sub("HASIL")
-        print("  Graham Number tidak bisa dihitung.")
+        st.error("❌ Graham Number tidak bisa dihitung")
         if eps <= 0:
-            print(f"  - EPS = {rp(eps)} (perusahaan rugi / tidak untung).")
+            st.write(f"- EPS = {rp(eps)} (perusahaan rugi / tidak untung).")
         if bvps <= 0:
-            print(f"  - BVPS = {rp(bvps)} (ekuitas negatif).")
-        print("\n  Metode Graham hanya berlaku untuk perusahaan yang profitabel")
-        print("  dengan ekuitas positif. Coba metode lain atau perbaiki data.")
+            st.write(f"- BVPS = {rp(bvps)} (ekuitas negatif).")
+        st.info("Metode Graham hanya berlaku untuk perusahaan yang profitabel dengan ekuitas positif. Coba metode lain atau perbaiki data.")
         return
 
     graham = (22.5 * eps * bvps) ** 0.5
-    print(f"\n  Perhitungan: akar(22,5 x {fmt(eps)} x {fmt(bvps)}) = {rp(graham)}")
+    st.markdown(f"### Perhitungan")
+    st.write(f"√(22,5 × {fmt(eps)} × {fmt(bvps)}) = **{rp(graham)}**")
 
     tampilkan_kesimpulan("Benjamin Graham (Graham Number)", graham, harga_pasar)
 
-    sub("INFO TAMBAHAN")
-    print(f"  PER pada harga wajar : {fmt(graham / eps)}x")
-    print(f"  PBV pada harga wajar : {fmt(graham / bvps)}x")
-    if harga_pasar > 0:
-        print(f"  PER pada harga pasar : {fmt(harga_pasar / eps)}x")
-        print(f"  PBV pada harga pasar : {fmt(harga_pasar / bvps)}x")
+    sub("Informasi Tambahan")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("PER pada harga wajar", f"{fmt(graham / eps)}x")
+        if harga_pasar > 0:
+            st.metric("PER pada harga pasar", f"{fmt(harga_pasar / eps)}x")
+    with col2:
+        st.metric("PBV pada harga wajar", f"{fmt(graham / bvps)}x")
+        if harga_pasar > 0:
+            st.metric("PBV pada harga pasar", f"{fmt(harga_pasar / bvps)}x")
 
 
 # ---------------------------------------------------------------------------
@@ -447,103 +471,109 @@ def metode_graham():
 # ---------------------------------------------------------------------------
 
 def metode_dcf():
-    judul("METODE 2: DISCOUNTED CASH FLOW (DCF)")
-    print("""
-  Ide dasar: nilai perusahaan = seluruh arus kas masa depan yang
-  didiskontokan ke nilai sekarang (present value).
+    judul("Discounted Cash Flow (DCF)")
 
-    FCF tahun ke-n   = FCF0 x (1 + g)^n
-    PV               = FCF tahun ke-n / (1 + WACC)^n
-    Terminal Value   = FCF tahun akhir x (1 + g_term) / (WACC - g_term)
-    Enterprise Value = sigma PV + PV(Terminal Value)
-    Equity Value     = Enterprise Value - utang berbunga + kas
-    Harga wajar      = Equity Value / jumlah saham beredar
+    st.markdown("""
+    **Ide dasar:** Nilai perusahaan = seluruh arus kas masa depan yang didiskontokan ke nilai sekarang.
 
-  Syarat: WACC harus lebih besar dari growth terminal.
-""")
-    sub("INPUT DATA")
+    - **FCF tahun ke-n** = FCF₀ × (1 + g)ⁿ
+    - **PV** = FCF tahun ke-n / (1 + WACC)ⁿ
+    - **Terminal Value** = FCF tahun akhir × (1 + g_term) / (WACC - g_term)
+    - **Enterprise Value** = Σ PV + PV(Terminal Value)
+    - **Equity Value** = Enterprise Value - utang berbunga + kas
+    - **Harga wajar** = Equity Value / jumlah saham beredar
 
-    pilihan_mode = ["1", "2"] if yf else ["1"]
-    print("  Pilihan input data:")
-    print("    1. Input manual semua data")
+    ⚠️ **Syarat:** WACC harus lebih besar dari growth terminal.
+    """)
+
+    sub("Pilih Cara Input Data")
+
+    pilihan_mode = ["Input manual semua data"]
     if yf:
-        print("    2. Ambil FCF, utang, kas, saham dari yfinance (WACC & growth manual)")
+        pilihan_mode.append("Ambil dari yfinance (WACC & growth manual)")
 
-    cara = minta_pilihan("  Pilih opsi (1-2):", pilihan_mode)
+    cara = st.radio("", pilihan_mode, index=0, horizontal=True)
 
     data_yf = None
-    if cara == "2":
-        while True:
+    if cara == pilihan_mode[1] if len(pilihan_mode) > 1 else False:
+        ticker_input = st.text_input("Kode saham (contoh: BBCA.JK, ASII.JK):", "BBCA.JK")
+        if ticker_input and st.button("📥 Ambil data dari yfinance", key="dcf_yf"):
             try:
-                ticker_input = input("  Kode saham (contoh: BBCA.JK, ASII.JK): ").strip()
                 if VALIDATION_AVAILABLE:
                     ticker = validate_ticker(ticker_input)
                 else:
                     ticker = ticker_input.upper()
-                break
+                data_yf = ambil_data_yfinance(ticker)
+                if data_yf and (data_yf.get('fcf') or data_yf.get('kas') or data_yf.get('saham_beredar')):
+                    tampilkan_data_yfinance(data_yf)
+                else:
+                    st.warning(f"⚠️ Data dari yfinance untuk {ticker} tidak lengkap.")
+                    data_yf = None
             except ValueError as e:
-                print(f"  ! {e}")
-                continue
-        data_yf = ambil_data_yfinance(ticker)
+                st.error(f"Error: {e}")
 
-        if data_yf and (data_yf.get('fcf') or data_yf.get('kas') or data_yf.get('saham_beredar')):
-            tampilkan_data_yfinance(data_yf)
+    satuan_list = list(SATUAN.values())
+    satuan_nama = st.selectbox("Satuan untuk FCF, utang, dan kas", [x[0] for x in satuan_list], key="dcf_satuan")
+    pengali = dict((v[0], v[1]) for v in SATUAN.values())[satuan_nama]
+    nama_satuan = satuan_nama
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if data_yf and data_yf.get('fcf'):
+            fcf0_display = data_yf['fcf'] / pengali
+            st.info(f"FCF dari yfinance: {fmt(fcf0_display)} {nama_satuan}")
+            fcf0 = minta_float_st(f"Free Cash Flow tahun terakhir ({nama_satuan})", default=fcf0_display, step=1.0)
         else:
-            print(f"\n  ! Data dari yfinance untuk {ticker} tidak lengkap.")
-            data_yf = None
+            fcf0 = minta_float_st(f"Free Cash Flow tahun terakhir ({nama_satuan})", default=1000, step=1.0)
+        fcf0 *= pengali
 
-    pengali, nama_satuan = pilih_satuan("Free Cash Flow, utang, dan kas")
+    with col2:
+        tahun = minta_int_st("Periode proyeksi (tahun)", minimum=1, maksimum=30, default=5)
 
-    if data_yf and data_yf.get('fcf'):
-        fcf0 = data_yf['fcf'] / pengali
-        print(f"  Free Cash Flow (dari yfinance): {fmt(fcf0)} {nama_satuan}")
-    else:
-        fcf0 = minta_float(f"Free Cash Flow tahun terakhir (dalam {nama_satuan})") * pengali
     if fcf0 <= 0:
-        print("\n  ! Catatan: FCF Anda <= 0. DCF akan menghasilkan nilai negatif.")
-        print("    Metode DCF sebaiknya dipakai saat FCF positif dan relatif stabil.")
+        st.warning("⚠️ FCF Anda <= 0. DCF akan menghasilkan nilai negatif. Metode DCF sebaiknya dipakai saat FCF positif.")
 
-    tahun = minta_int("Periode proyeksi (tahun)", minimum=1, maksimum=30, default=5)
-    wacc_p = minta_float(
-        "WACC / discount rate (% per tahun)", minimum=0.01, maksimum=100, default=10,
-        param_name="wacc"
-    )
-    g_p = minta_float(
-        "Growth rate FCF selama proyeksi (% per tahun)", minimum=-100, maksimum=200, default=5,
-        param_name="growth_rate"
-    )
-    g_term_p = minta_float(
-        "Growth terminal / perpetual (% per tahun)",
-        minimum=-10, maksimum=wacc_p - 0.01, default=min(3.0, wacc_p - 0.01),
-    )
-    if data_yf and data_yf.get('utang'):
-        utang = data_yf['utang'] / pengali
-        print(f"  Total utang (dari yfinance): {fmt(utang)} {nama_satuan}")
-    else:
-        utang = minta_float(f"Total utang berbunga (dalam {nama_satuan}, 0 bila tidak ada)",
-                            minimum=0, default=0) * pengali
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        wacc_p = minta_float_st("WACC / discount rate (% per tahun)", minimum=0.01, maksimum=100, default=10, param_name="wacc", step=0.5)
+    with col2:
+        g_p = minta_float_st("Growth rate FCF (% per tahun)", minimum=-100, maksimum=200, default=5, param_name="growth_rate", step=0.5)
+    with col3:
+        default_g_term = min(3.0, max(wacc_p - 0.01, 1.0))
+        g_term_p = minta_float_st("Growth terminal/perpetual (% per tahun)", minimum=-10, maksimum=wacc_p - 0.01, default=default_g_term, step=0.5)
 
-    if data_yf and data_yf.get('kas'):
-        kas = data_yf['kas'] / pengali
-        print(f"  Kas & setara (dari yfinance): {fmt(kas)} {nama_satuan}")
-    else:
-        kas = minta_float(f"Kas & setara kas (dalam {nama_satuan}, 0 bila tidak ada)",
-                          minimum=0, default=0) * pengali
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if data_yf and data_yf.get('utang'):
+            st.info(f"Utang dari yfinance: {fmt(data_yf['utang'] / pengali)} {nama_satuan}")
+            utang = minta_float_st(f"Total utang berbunga ({nama_satuan})", minimum=0, default=data_yf['utang'] / pengali, step=1.0)
+        else:
+            utang = minta_float_st(f"Total utang berbunga ({nama_satuan})", minimum=0, default=0, step=1.0)
+        utang *= pengali
 
-    if data_yf and data_yf.get('saham_beredar'):
-        saham = data_yf['saham_beredar']
-        print(f"  Saham beredar (dari yfinance): {fmt(saham, 0)} lembar")
-    else:
-        saham = minta_float("Jumlah saham beredar (lembar)", minimum=1)
+    with col2:
+        if data_yf and data_yf.get('kas'):
+            st.info(f"Kas dari yfinance: {fmt(data_yf['kas'] / pengali)} {nama_satuan}")
+            kas = minta_float_st(f"Kas & setara kas ({nama_satuan})", minimum=0, default=data_yf['kas'] / pengali, step=1.0)
+        else:
+            kas = minta_float_st(f"Kas & setara kas ({nama_satuan})", minimum=0, default=0, step=1.0)
+        kas *= pengali
 
-    harga_pasar = minta_harga_pasar()
+    with col3:
+        if data_yf and data_yf.get('saham_beredar'):
+            st.info(f"Saham dari yfinance: {fmt(data_yf['saham_beredar'], 0)}")
+            saham = minta_float_st("Jumlah saham beredar (lembar)", minimum=1, default=data_yf['saham_beredar'], step=1.0)
+        else:
+            saham = minta_float_st("Jumlah saham beredar (lembar)", minimum=1, default=100, step=1.0)
+
+    harga_pasar = minta_float_st("Harga pasar saat ini per lembar (isi 0 untuk melewati)", minimum=0, default=0, step=1.0)
 
     wacc, g, g_term = wacc_p / 100, g_p / 100, g_term_p / 100
 
-    sub("PROYEKSI ARUS KAS")
-    print(f"  {'Thn':>4} {'FCF Proyeksi':>18} {'Faktor Diskon':>15} {'Present Value':>18}")
-    print("  " + "-" * 57)
+    sub("Proyeksi Arus Kas")
 
+    # Hitung proyeksi
+    proyeksi_data = []
     total_pv = 0.0
     fcf_n = fcf0
     for n in range(1, tahun + 1):
@@ -551,53 +581,78 @@ def metode_dcf():
         faktor = 1 / (1 + wacc) ** n
         pv = fcf_n * faktor
         total_pv += pv
-        print(f"  {n:>4} {rp_ringkas(fcf_n):>18} {fmt(faktor, 4):>15} {rp_ringkas(pv):>18}")
+        proyeksi_data.append({
+            "Tahun": n,
+            "FCF Proyeksi": fcf_n,
+            "Faktor Diskon": faktor,
+            "Present Value": pv
+        })
 
-    terminal_value = fcf_n * (1 + g_term) / (wacc - g_term)
-    pv_terminal = terminal_value / (1 + wacc) ** tahun
+    df_proyeksi = pd.DataFrame(proyeksi_data)
+    df_proyeksi["FCF Proyeksi"] = df_proyeksi["FCF Proyeksi"].apply(lambda x: rp_ringkas(x))
+    df_proyeksi["Faktor Diskon"] = df_proyeksi["Faktor Diskon"].apply(lambda x: f"{fmt(x, 4)}")
+    df_proyeksi["Present Value"] = df_proyeksi["Present Value"].apply(lambda x: rp_ringkas(x))
+    st.dataframe(df_proyeksi, use_container_width=True, hide_index=True)
+
+    terminal_value = fcf_n * (1 + g_term) / (wacc - g_term) if wacc > g_term else 0
+    pv_terminal = terminal_value / (1 + wacc) ** tahun if terminal_value > 0 else 0
     enterprise = total_pv + pv_terminal
     equity = enterprise - utang + kas
-    harga_wajar = equity / saham
+    harga_wajar = equity / saham if saham > 0 else 0
 
-    sub("RINGKASAN NILAI")
+    sub("Ringkasan Nilai")
     porsi_tv = pv_terminal / enterprise * 100 if enterprise else 0
-    baris_nilai = [
-        (f"PV arus kas {tahun} tahun", rp_ringkas(total_pv)),
-        ("Terminal Value", rp_ringkas(terminal_value)),
-        ("PV Terminal Value", f"{rp_ringkas(pv_terminal)}  ({fmt(porsi_tv)}% dari total)"),
-        ("Enterprise Value", rp_ringkas(enterprise)),
-        ("(-) Utang berbunga", rp_ringkas(utang)),
-        ("(+) Kas", rp_ringkas(kas)),
-        ("Equity Value", rp_ringkas(equity)),
-        ("Jumlah saham", f"{fmt(saham, 0)} lembar"),
-    ]
-    lebar = max(len(label) for label, _ in baris_nilai)
-    for label, nilai_teks in baris_nilai:
-        print(f"  {label:<{lebar}} : {nilai_teks}")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(f"PV arus kas {tahun} tahun", rp_ringkas(total_pv))
+    with col2:
+        st.metric("Terminal Value", rp_ringkas(terminal_value))
+    with col3:
+        st.metric("PV Terminal Value", f"{rp_ringkas(pv_terminal)}\n({fmt(porsi_tv)}% dari total)", label_visibility="visible")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Enterprise Value", rp_ringkas(enterprise))
+    with col2:
+        st.metric("(-) Utang berbunga", rp_ringkas(utang))
+    with col3:
+        st.metric("(+) Kas", rp_ringkas(kas))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Equity Value", rp_ringkas(equity))
+    with col2:
+        st.metric("Jumlah saham", f"{fmt(saham, 0)} lembar")
 
     tampilkan_kesimpulan("Discounted Cash Flow (DCF)", harga_wajar, harga_pasar)
 
-    sub("ANALISIS SENSITIVITAS (harga wajar per lembar)")
+    sub("Analisis Sensitivitas (Harga Wajar per Lembar)")
+
     daftar_wacc = [wacc_p - 2, wacc_p, wacc_p + 2]
     daftar_g = [g_p - 2, g_p, g_p + 2]
-    print("  " + "WACC \\ g".ljust(12) + "".join(f"{fmt(x, 1) + '%':>16}" for x in daftar_g))
+
+    sensitivitas_data = []
     for w_p in daftar_wacc:
+        baris = {"WACC \\ g": f"{fmt(w_p, 1)}%"}
         w = w_p / 100
-        baris = f"  {fmt(w_p, 1) + '%':<12}"
         for gg_p in daftar_g:
             gg = gg_p / 100
             if w <= g_term or w <= 0:
-                baris += f"{'n/a':>16}"
-                continue
-            pv_sum = sum(fcf0 * (1 + gg) ** n / (1 + w) ** n for n in range(1, tahun + 1))
-            fcf_akhir = fcf0 * (1 + gg) ** tahun
-            tv = fcf_akhir * (1 + g_term) / (w - g_term)
-            ev = pv_sum + tv / (1 + w) ** tahun
-            nilai = (ev - utang + kas) / saham
-            baris += f"{rp(nilai, 0):>16}"
-        print(baris)
-    print("\n  Perhatikan: perubahan kecil pada WACC/growth mengubah hasil cukup jauh.")
-    print("  Itu sebabnya DCF selalu dipakai bersama margin of safety.")
+                baris[f"{fmt(gg_p, 1)}%"] = "n/a"
+            else:
+                pv_sum = sum(fcf0 * (1 + gg) ** n / (1 + w) ** n for n in range(1, tahun + 1))
+                fcf_akhir = fcf0 * (1 + gg) ** tahun
+                tv = fcf_akhir * (1 + g_term) / (w - g_term)
+                ev = pv_sum + tv / (1 + w) ** tahun
+                nilai = (ev - utang + kas) / saham
+                baris[f"{fmt(gg_p, 1)}%"] = rp(nilai, 0)
+        sensitivitas_data.append(baris)
+
+    df_sensitif = pd.DataFrame(sensitivitas_data)
+    st.dataframe(df_sensitif, use_container_width=True, hide_index=True)
+
+    st.info("💡 Perhatikan: perubahan kecil pada WACC/growth mengubah hasil cukup jauh. Itulah mengapa DCF selalu dipakai bersama margin of safety.")
 
 
 # ---------------------------------------------------------------------------
@@ -605,77 +660,91 @@ def metode_dcf():
 # ---------------------------------------------------------------------------
 
 def metode_pe_pbv():
-    judul("METODE 3: RASIO PE DAN PBV (RELATIVE VALUATION)")
-    print("""
-  Membandingkan saham dengan rasio acuan (rata-rata historis emiten,
-  rata-rata industri, atau rasio pesaing).
+    judul("Rasio PE dan PBV (Relative Valuation)")
 
-    Harga wajar (PE)  = EPS  x PE acuan
-    Harga wajar (PBV) = BVPS x PBV acuan
-    Harga wajar gabungan = rata-rata berbobot dari keduanya
+    st.markdown("""
+    **Ide:** Membandingkan saham dengan rasio acuan (rata-rata historis emiten, rata-rata industri, atau rasio pesaing).
 
-  PE  = Price to Earning Ratio (harga dibanding laba per saham)
-  PBV = Price to Book Value    (harga dibanding nilai buku per saham)
-""")
-    sub("INPUT DATA")
+    - **Harga wajar (PE)** = EPS × PE acuan
+    - **Harga wajar (PBV)** = BVPS × PBV acuan
+    - **Harga wajar gabungan** = rata-rata berbobot dari keduanya
 
-    pilihan_mode = ["1", "2"] if yf else ["1"]
-    print("  Pilihan input data:")
-    print("    1. Input manual EPS & BVPS")
+    - **PE** = Price to Earning Ratio (harga dibanding laba per saham)
+    - **PBV** = Price to Book Value (harga dibanding nilai buku per saham)
+    """)
+
+    sub("Pilih Cara Input Data")
+
+    pilihan_mode = ["Input manual EPS & BVPS"]
     if yf:
-        print("    2. Ambil data otomatis dari yfinance")
+        pilihan_mode.append("Ambil data otomatis dari yfinance")
 
-    cara = minta_pilihan("  Pilih opsi (1-2):", pilihan_mode)
+    cara = st.radio("", pilihan_mode, index=0, horizontal=True, key="pe_pbv_cara")
 
-    if cara == "1":
-        eps = minta_float("EPS - laba per lembar saham (Rp)")
-        bvps = minta_float("BVPS - nilai buku per lembar saham (Rp)")
-    else:  # cara == "2", ambil dari yfinance
-        while True:
+    if cara == pilihan_mode[0]:  # Input manual
+        col1, col2 = st.columns(2)
+        with col1:
+            eps = minta_float_st("EPS - laba per lembar saham (Rp)", default=100)
+        with col2:
+            bvps = minta_float_st("BVPS - nilai buku per lembar saham (Rp)", default=500)
+
+    else:  # Ambil dari yfinance
+        ticker_input = st.text_input("Kode saham (contoh: BBCA.JK, ASII.JK):", "BBCA.JK", key="pe_pbv_ticker")
+        if ticker_input and st.button("📥 Ambil data dari yfinance", key="pe_pbv_yf"):
             try:
-                ticker_input = input("  Kode saham (contoh: BBCA.JK, ASII.JK): ").strip()
                 if VALIDATION_AVAILABLE:
                     ticker = validate_ticker(ticker_input)
                 else:
                     ticker = ticker_input.upper()
-                break
-            except ValueError as e:
-                print(f"  ! {e}")
-                continue
-        data_yf = ambil_data_yfinance(ticker)
 
-        if not data_yf or data_yf.get('eps') is None or data_yf.get('book_value') is None:
-            print(f"\n  ! Data tidak lengkap dari yfinance untuk {ticker}.")
-            print("  Lanjut dengan input manual.")
-            eps = minta_float("EPS - laba per lembar saham (Rp)")
-            bvps = minta_float("BVPS - nilai buku per lembar saham (Rp)")
-        else:
-            tampilkan_data_yfinance(data_yf)
-            eps = data_yf['eps']
-            bvps = data_yf['book_value']
-            print(f"\n  ! Data EPS dan BVPS sudah diambil dari yfinance.")
-    pe_acuan = minta_float("PE acuan / target (x)", minimum=0, default=15,
-                           param_name="pe_ratio")
-    pbv_acuan = minta_float("PBV acuan / target (x)", minimum=0, default=1.5,
-                            param_name="pbv_ratio")
-    bobot_pe = minta_float("Bobot untuk metode PE (%)", minimum=0, maksimum=100, default=50)
-    harga_pasar = minta_harga_pasar()
+                data_yf = ambil_data_yfinance(ticker)
+                if data_yf and data_yf.get('eps') is not None and data_yf.get('book_value') is not None:
+                    tampilkan_data_yfinance(data_yf)
+                    eps = data_yf['eps']
+                    bvps = data_yf['book_value']
+                    st.success(f"✓ Data EPS dan BVPS berhasil diambil dari yfinance")
+                else:
+                    st.error(f"❌ Data tidak lengkap dari yfinance untuk {ticker}.")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        eps = minta_float_st("EPS - laba per lembar saham (Rp)", default=100)
+                    with col2:
+                        bvps = minta_float_st("BVPS - nilai buku per lembar saham (Rp)", default=500)
+            except ValueError as e:
+                st.error(f"Error: {e}")
+                return
+
+    sub("Rasio Acuan")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        pe_acuan = minta_float_st("PE acuan / target (x)", minimum=0, default=15, param_name="pe_ratio", step=0.5)
+    with col2:
+        pbv_acuan = minta_float_st("PBV acuan / target (x)", minimum=0, default=1.5, param_name="pbv_ratio", step=0.1)
+    with col3:
+        bobot_pe = minta_float_st("Bobot untuk metode PE (%)", minimum=0, maksimum=100, default=50, step=5)
+
+    harga_pasar = minta_float_st("Harga pasar saat ini per lembar (isi 0 untuk melewati)", minimum=0, default=0, step=1.0)
 
     bobot_pbv = 100 - bobot_pe
     wajar_pe = eps * pe_acuan
     wajar_pbv = bvps * pbv_acuan
     wajar_gabungan = (wajar_pe * bobot_pe + wajar_pbv * bobot_pbv) / 100
 
-    sub("PERHITUNGAN")
-    print(f"  Harga wajar via PE  : {rp(eps)} x {fmt(pe_acuan)} = {rp(wajar_pe)}")
-    print(f"  Harga wajar via PBV : {rp(bvps)} x {fmt(pbv_acuan)} = {rp(wajar_pbv)}")
-    print(f"  Bobot               : PE {fmt(bobot_pe, 0)}% / PBV {fmt(bobot_pbv, 0)}%")
+    sub("Perhitungan")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Harga wajar via PE", f"{rp(eps)} × {fmt(pe_acuan)} = {rp(wajar_pe)}", label_visibility="visible")
+    with col2:
+        st.metric("Harga wajar via PBV", f"{rp(bvps)} × {fmt(pbv_acuan)} = {rp(wajar_pbv)}", label_visibility="visible")
+    with col3:
+        st.metric("Bobot", f"PE {fmt(bobot_pe, 0)}% / PBV {fmt(bobot_pbv, 0)}%", label_visibility="visible")
 
     if eps <= 0:
-        print("\n  ! EPS <= 0, sehingga valuasi berbasis PE tidak bermakna.")
-        print("    Untuk emiten rugi, andalkan PBV atau metode lain.")
+        st.warning("⚠️ EPS <= 0, sehingga valuasi berbasis PE tidak bermakna. Untuk emiten rugi, andalkan PBV atau metode lain.")
     if bvps <= 0:
-        print("\n  ! BVPS <= 0 (ekuitas negatif), valuasi berbasis PBV tidak bermakna.")
+        st.error("❌ BVPS <= 0 (ekuitas negatif), valuasi berbasis PBV tidak bermakna.")
 
     tampilkan_kesimpulan(
         f"Rasio PE & PBV (bobot {fmt(bobot_pe, 0)}/{fmt(bobot_pbv, 0)})",
@@ -683,15 +752,18 @@ def metode_pe_pbv():
     )
 
     if harga_pasar > 0:
-        sub("RASIO PADA HARGA PASAR SEKARANG")
-        if eps != 0:
-            print(f"  PE  sekarang : {fmt(harga_pasar / eps)}x  (acuan {fmt(pe_acuan)}x)")
-        else:
-            print("  PE  sekarang : tidak terdefinisi (EPS = 0)")
-        if bvps != 0:
-            print(f"  PBV sekarang : {fmt(harga_pasar / bvps)}x  (acuan {fmt(pbv_acuan)}x)")
-        else:
-            print("  PBV sekarang : tidak terdefinisi (BVPS = 0)")
+        sub("Rasio pada Harga Pasar Sekarang")
+        col1, col2 = st.columns(2)
+        with col1:
+            if eps != 0:
+                st.metric("PE sekarang", f"{fmt(harga_pasar / eps)}x", f"(acuan {fmt(pe_acuan)}x)")
+            else:
+                st.info("PE sekarang: tidak terdefinisi (EPS = 0)")
+        with col2:
+            if bvps != 0:
+                st.metric("PBV sekarang", f"{fmt(harga_pasar / bvps)}x", f"(acuan {fmt(pbv_acuan)}x)")
+            else:
+                st.info("PBV sekarang: tidak terdefinisi (BVPS = 0)")
 
 
 # ---------------------------------------------------------------------------
@@ -699,150 +771,269 @@ def metode_pe_pbv():
 # ---------------------------------------------------------------------------
 
 def tampilkan_riwayat():
-    judul("RINGKASAN HASIL SESI INI")
-    if not riwayat:
-        print("\n  Belum ada perhitungan. Jalankan menu 1, 2, atau 3 dulu.")
+    judul("📊 Ringkasan Hasil Sesi Ini")
+
+    if not st.session_state.riwayat:
+        st.info("ℹ️ Belum ada perhitungan. Lakukan perhitungan metode 1, 2, atau 3 terlebih dahulu.")
         return
 
-    print(f"\n  {'Metode':<40}{'Harga Wajar':>18}")
-    print("  " + "-" * 58)
-    for metode, wajar, _ in riwayat:
-        print(f"  {metode[:40]:<40}{rp(wajar):>18}")
+    riwayat_data = []
+    for metode, wajar, pasar in st.session_state.riwayat:
+        riwayat_data.append({
+            "Metode": metode[:35],
+            "Harga Wajar": rp(wajar)
+        })
 
-    nilai = [w for _, w, _ in riwayat]
+    df_riwayat = pd.DataFrame(riwayat_data)
+    st.dataframe(df_riwayat, use_container_width=True, hide_index=True)
+
+    nilai = [w for _, w, _ in st.session_state.riwayat]
     rata = sum(nilai) / len(nilai)
-    print("  " + "-" * 58)
-    print(f"  {'Rata-rata semua metode':<40}{rp(rata):>18}")
-    print(f"  {'Terendah (paling konservatif)':<40}{rp(min(nilai)):>18}")
-    print(f"  {'Tertinggi (paling optimistis)':<40}{rp(max(nilai)):>18}")
 
-    pasar = [p for _, _, p in riwayat if p > 0]
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Rata-rata semua metode", rp(rata))
+    with col2:
+        st.metric("Terendah (paling konservatif)", rp(min(nilai)))
+    with col3:
+        st.metric("Tertinggi (paling optimistis)", rp(max(nilai)))
+
+    pasar = [p for _, _, p in st.session_state.riwayat if p > 0]
     if pasar:
         harga_pasar = pasar[-1]
-        print(f"\n  Harga pasar terakhir yang diinput: {rp(harga_pasar)}")
+        st.markdown(f"**Harga pasar terakhir yang diinput:** {rp(harga_pasar)}")
         murah = sum(1 for v in nilai if v > harga_pasar)
-        print(f"  {murah} dari {len(nilai)} metode menilai saham ini di bawah nilai wajar.")
-    print("\n  Praktik umum: pakai beberapa metode lalu ambil rentang nilainya,")
-    print("  bukan satu angka tunggal.")
+        st.success(f"✓ {murah} dari {len(nilai)} metode menilai saham ini di bawah nilai wajar.")
+
+    st.info("💡 **Praktik umum:** Pakai beberapa metode lalu ambil rentang nilainya, bukan satu angka tunggal.")
 
 
 def tampilkan_penjelasan():
-    judul("PENJELASAN SINGKAT KETIGA METODE")
-    print("""
-  1. BENJAMIN GRAHAM (GRAHAM NUMBER)
-     Rumus  : akar(22,5 x EPS x BVPS)
-     Data   : EPS, BVPS
-     Cocok  : perusahaan mapan, berlaba stabil, aset berwujud besar
-              (bank, manufaktur, consumer goods).
-     Lemah  : terlalu ketat untuk perusahaan bertumbuh cepat atau
-              perusahaan aset ringan (teknologi, jasa), dan tidak bisa
-              dipakai bila EPS atau BVPS negatif.
+    judul("📚 Penjelasan Singkat Ketiga Metode")
 
-  2. DISCOUNTED CASH FLOW (DCF)
-     Rumus  : jumlahkan PV dari FCF proyeksi + PV terminal value,
-              lalu sesuaikan dengan utang & kas, bagi jumlah saham.
-     Data   : FCF terakhir, growth, WACC, growth terminal, utang, kas, saham
-     Cocok  : perusahaan dengan arus kas positif dan cukup terprediksi.
-     Lemah  : sangat sensitif terhadap asumsi. WACC naik 1% saja bisa
-              memotong nilai wajar dua digit persen. Karena itu program ini
-              menampilkan tabel sensitivitas.
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Graham Number", "DCF", "Rasio PE/PBV", "Istilah Penting", "Peringatan"
+    ])
 
-  3. RASIO PE DAN PBV
-     Rumus  : EPS x PE acuan, dan BVPS x PBV acuan
-     Data   : EPS, BVPS, PE & PBV acuan (historis emiten / industri)
-     Cocok  : perbandingan cepat antar emiten satu sektor.
-     Lemah  : ikut salah kalau seluruh sektor sedang overvalued, dan
-              tidak bermakna saat EPS negatif.
+    with tab1:
+        st.markdown("""
+        ### 1. BENJAMIN GRAHAM (GRAHAM NUMBER)
 
-  ISTILAH PENTING
-     EPS   : laba bersih dibagi jumlah saham beredar.
-     BVPS  : total ekuitas dibagi jumlah saham beredar.
-     FCF   : arus kas operasi dikurangi belanja modal (capex).
-     WACC  : rata-rata biaya modal berbobot; dipakai sebagai discount rate.
-             Semakin berisiko perusahaan, semakin tinggi WACC.
-     MOS   : Margin of Safety, selisih diskon harga pasar terhadap nilai
-             wajar. Graham menyarankan minimal 20-30%.
+        **Rumus:** √(22,5 × EPS × BVPS)
 
-  DI MANA MENCARI DATANYA
-     Laporan keuangan / laporan tahunan emiten (situs IDX atau situs
-     perusahaan): laba bersih, ekuitas, arus kas operasi, capex, utang,
-     kas, jumlah saham beredar.
+        **Data:** EPS, BVPS
 
-  PERINGATAN
-     Semua hasil hanyalah estimasi dari asumsi yang Anda masukkan.
-     Program ini alat bantu belajar, bukan rekomendasi investasi.
-""")
+        **Cocok untuk:**
+        - Perusahaan mapan, berlaba stabil
+        - Aset berwujud besar (bank, manufaktur, consumer goods)
+
+        **Kelemahan:**
+        - Terlalu ketat untuk perusahaan bertumbuh cepat
+        - Tidak cocok untuk perusahaan aset ringan (teknologi, jasa)
+        - Tidak bisa dipakai bila EPS atau BVPS negatif
+        """)
+
+    with tab2:
+        st.markdown("""
+        ### 2. DISCOUNTED CASH FLOW (DCF)
+
+        **Rumus:** Jumlahkan PV dari FCF proyeksi + PV terminal value, lalu sesuaikan dengan utang & kas, bagi jumlah saham
+
+        **Data:** FCF terakhir, growth, WACC, growth terminal, utang, kas, saham
+
+        **Cocok untuk:**
+        - Perusahaan dengan arus kas positif
+        - Arus kas cukup terprediksi
+
+        **Kelemahan:**
+        - Sangat sensitif terhadap asumsi
+        - WACC naik 1% saja bisa memotong nilai wajar puluhan persen
+        - *Solusi:* Program menampilkan tabel sensitivitas untuk analisis lebih lanjut
+        """)
+
+    with tab3:
+        st.markdown("""
+        ### 3. RASIO PE DAN PBV (RELATIVE VALUATION)
+
+        **Rumus:**
+        - Harga wajar (PE) = EPS × PE acuan
+        - Harga wajar (PBV) = BVPS × PBV acuan
+
+        **Data:** EPS, BVPS, PE & PBV acuan (historis emiten / industri)
+
+        **Cocok untuk:**
+        - Perbandingan cepat antar emiten satu sektor
+
+        **Kelemahan:**
+        - Ikut salah kalau seluruh sektor sedang overvalued
+        - Tidak bermakna saat EPS negatif
+        """)
+
+    with tab4:
+        st.markdown("""
+        ### ISTILAH PENTING
+
+        **EPS** - Earning Per Share
+        - Laba bersih dibagi jumlah saham beredar
+
+        **BVPS** - Book Value Per Share
+        - Total ekuitas dibagi jumlah saham beredar
+
+        **FCF** - Free Cash Flow
+        - Arus kas operasi dikurangi belanja modal (capex)
+
+        **WACC** - Weighted Average Cost of Capital
+        - Rata-rata biaya modal berbobot; dipakai sebagai discount rate
+        - Semakin berisiko perusahaan, semakin tinggi WACC
+
+        **MOS** - Margin of Safety
+        - Selisih diskon harga pasar terhadap nilai wajar
+        - Graham menyarankan minimal 20-30%
+
+        ### DI MANA MENCARI DATANYA
+        Laporan keuangan / laporan tahunan emiten (situs IDX atau situs perusahaan):
+        - Laba bersih
+        - Ekuitas
+        - Arus kas operasi
+        - Capex
+        - Utang
+        - Kas
+        - Jumlah saham beredar
+        """)
+
+    with tab5:
+        st.warning("""
+        ⚠️ **PERINGATAN PENTING**
+
+        Semua hasil hanyalah **estimasi dari asumsi yang Anda masukkan**.
+
+        **Program ini adalah alat bantu belajar, BUKAN rekomendasi investasi.**
+
+        Keputusan investasi harus mempertimbangkan:
+        - Analisis kualitatif perusahaan
+        - Kondisi pasar dan industri
+        - Profil risiko personal Anda
+        - Konsultasi dengan advisor keuangan profesional
+
+        Gunakan program ini untuk pembelajaran dan riset saja.
+        """)
 
 
 # ---------------------------------------------------------------------------
 # Menu utama
 # ---------------------------------------------------------------------------
 
-MENU = """
-==============================================================
-            KALKULATOR HARGA WAJAR SAHAM
-==============================================================
-  1. Metode Benjamin Graham       (EPS, BVPS)
-  2. Metode Discounted Cash Flow  (FCF, WACC, Growth)
-  3. Metode Rasio PE dan PBV      (EPS, BVPS, PE, PBV)
-  4. Ringkasan hasil sesi ini
-  5. Penjelasan metode & istilah
-  0. Keluar
-==============================================================
-"""
-
-
 def main():
-    print("\nSelamat datang di Kalkulator Harga Wajar Saham.")
-    print("Penulisan angka: desimal pakai koma (1.250,75 atau 1250,75).")
-    print("Titik berkelompok 3 angka dianggap pemisah ribuan (1.500 = seribu lima ratus).")
+    # Configure page
+    st.set_page_config(
+        page_title="Kalkulator Harga Wajar Saham",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
 
-    if yf is None:
-        print("\n⚠ CATATAN: yfinance tidak terinstall.")
-        print("  Untuk menggunakan fitur pengambilan data otomatis dari internet,")
-        print("  jalankan: pip install yfinance")
-        print("  Anda masih bisa menggunakan kalkulator dengan input manual.")
-    else:
-        print("\n✓ yfinance tersedia. Anda bisa memilih mengambil data dari internet")
+    # Header
+    st.markdown("# 📈 Kalkulator Harga Wajar Saham")
+    st.markdown("""
+    **Estimasi harga wajar (nilai intrinsik) saham dengan 3 metode:**
+    - Benjamin Graham (Graham Number)
+    - Discounted Cash Flow (DCF)
+    - Relative Valuation (Rasio PE & PBV)
+    """)
 
-    # Display security validation status
-    if VALIDATION_AVAILABLE:
-        print("\n✓ Security validation AKTIF")
-        print("  - Ticker format validation (format: KODE.JK)")
-        print("  - WACC range validation (0.5% - 20%)")
-        print("  - Growth rate range validation (-10% - 30%)")
-        print("  - PE/PBV ratio validation (1x - 100x, 0.1x - 10x)")
-    else:
-        print("\n⚠ Security validation tidak aktif")
-        print("  - Pastikan input_validation.py ada di folder yang sama")
-        print("  - atau install dependencies yang diperlukan")
+    # Sidebar info
+    with st.sidebar:
+        st.markdown("## ℹ️ Informasi")
 
-    aksi = {
-        "1": metode_graham,
-        "2": metode_dcf,
-        "3": metode_pe_pbv,
-        "4": tampilkan_riwayat,
-        "5": tampilkan_penjelasan,
-    }
+        st.markdown("### 📝 Catatan Input")
+        st.info("""
+        Penulisan angka:
+        - Desimal: gunakan koma (1.250,75 atau 1250,75)
+        - Titik berkelompok 3 angka = pemisah ribuan (1.500 = 1500)
+        """)
 
-    while True:
-        print(MENU)
-        pilihan = minta_pilihan("Pilih menu (0-5):", list(aksi) + ["0"])
-        if pilihan == "0":
-            if riwayat:
-                tampilkan_riwayat()
-            print("\nTerima kasih. Selamat berinvestasi dengan bijak!\n")
-            return
-        aksi[pilihan]()
-        try:
-            input("\n  [Enter] untuk kembali ke menu utama...")
-        except (EOFError, KeyboardInterrupt):
-            print("\n\nProgram berhenti.")
-            return
+        if yf is None:
+            st.warning("""
+            ⚠️ **yfinance tidak tersedia**
+
+            Untuk fitur pengambilan data otomatis dari internet:
+            ```bash
+            pip install yfinance
+            ```
+            Anda masih bisa menggunakan kalkulator dengan input manual.
+            """)
+        else:
+            st.success("✓ **yfinance tersedia** - Bisa ambil data otomatis dari internet")
+
+        if VALIDATION_AVAILABLE:
+            st.success("""
+            ✓ **Security validation AKTIF**
+            - Ticker format (KODE.JK)
+            - WACC range (0.5% - 20%)
+            - Growth rate (-10% - 30%)
+            - PE/PBV ratio (1x-100x, 0.1x-10x)
+            """)
+        else:
+            st.warning("""
+            ⚠️ **Security validation tidak aktif**
+
+            Pastikan `input_validation.py` ada di folder yang sama.
+            """)
+
+    # Main content with tabs
+    tab_graham, tab_dcf, tab_pe_pbv, tab_ringkasan, tab_penjelasan = st.tabs([
+        "1️⃣ Graham Number",
+        "2️⃣ DCF",
+        "3️⃣ PE & PBV",
+        "📊 Ringkasan",
+        "📚 Penjelasan"
+    ])
+
+    with tab_graham:
+        st.markdown("---")
+        metode_graham()
+
+    with tab_dcf:
+        st.markdown("---")
+        metode_dcf()
+
+    with tab_pe_pbv:
+        st.markdown("---")
+        metode_pe_pbv()
+
+    with tab_ringkasan:
+        st.markdown("---")
+        tampilkan_riwayat()
+
+    with tab_penjelasan:
+        st.markdown("---")
+        tampilkan_penjelasan()
+
+    # Footer
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("### 📖 Disclaimer")
+        st.markdown("""
+        Hasil hanyalah **estimasi** dari asumsi Anda.
+
+        **BUKAN rekomendasi investasi.**
+        """)
+    with col2:
+        st.markdown("### 💡 Tips")
+        st.markdown("""
+        Gunakan **beberapa metode** untuk perbandingan.
+
+        Ambil **rentang nilai** bukan angka tunggal.
+        """)
+    with col3:
+        st.markdown("### 🎯 Margin of Safety")
+        st.markdown(f"""
+        Default: **{fmt(MOS_DEFAULT, 0)}%**
+
+        Untuk estimasi konservatif.
+        """)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n\nProgram dihentikan oleh pengguna.\n")
+    main()
