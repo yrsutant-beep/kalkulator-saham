@@ -199,14 +199,20 @@ def minta_float_st(label, minimum=None, maksimum=None, default=None, param_name=
         label: Label input
         minimum: Nilai minimum
         maksimum: Nilai maksimum
-        default: Nilai default
+        default: Nilai default (digunakan jika ada error)
         param_name: Nama parameter untuk validasi
         step: Langkah perubahan slider
+
+    Returns:
+        float: Nilai input yang valid (selalu mengembalikan float, tidak pernah None)
     """
+    # Ensure default is always a valid float
+    default_value = float(default) if default is not None else 0.0
+
     try:
         nilai = st.number_input(
             label,
-            value=float(default) if default is not None else 0.0,
+            value=default_value,
             min_value=float(minimum) if minimum is not None else None,
             max_value=float(maksimum) if maksimum is not None else None,
             step=step,
@@ -224,25 +230,35 @@ def minta_float_st(label, minimum=None, maksimum=None, default=None, param_name=
                 elif param_name.lower() == 'pbv_ratio':
                     nilai = validate_pbv_ratio(nilai)
             except ValueError as e:
-                st.error(str(e))
-                return None
+                st.error(f"⚠️ {str(e)}")
+                return default_value
 
-        return nilai
+        return float(nilai)
     except Exception as e:
-        st.error(f"Error dalam input: {e}")
-        return None
+        st.error(f"❌ Error dalam input: {e}")
+        return default_value
 
 
 def minta_int_st(label, minimum=None, maksimum=None, default=None):
-    """Widget input untuk bilangan bulat menggunakan Streamlit."""
-    return int(st.number_input(
-        label,
-        value=int(default) if default is not None else 0,
-        min_value=int(minimum) if minimum is not None else None,
-        max_value=int(maksimum) if maksimum is not None else None,
-        step=1,
-        format="%d"
-    ))
+    """Widget input untuk bilangan bulat menggunakan Streamlit.
+
+    Returns:
+        int: Nilai input yang valid (selalu mengembalikan int)
+    """
+    try:
+        default_value = int(default) if default is not None else 0
+        nilai = st.number_input(
+            label,
+            value=default_value,
+            min_value=int(minimum) if minimum is not None else None,
+            max_value=int(maksimum) if maksimum is not None else None,
+            step=1,
+            format="%d"
+        )
+        return int(nilai)
+    except Exception as e:
+        st.error(f"❌ Error dalam input integer: {e}")
+        return int(default) if default is not None else 0
 
 
 def minta_pilihan_st(label, pilihan_valid, index=0):
@@ -403,10 +419,15 @@ def metode_graham():
         with col3:
             saham = minta_float_st("Jumlah saham beredar (lembar)", minimum=1, default=100)
 
+        # Pastikan semua nilai adalah float sebelum operasi matematika
+        laba = float(laba) if laba is not None else 0.0
+        ekuitas = float(ekuitas) if ekuitas is not None else 0.0
+        saham = float(saham) if saham is not None else 1.0
+
         laba *= pengali
         ekuitas *= pengali
-        eps = laba / saham if saham > 0 else 0
-        bvps = ekuitas / saham if saham > 0 else 0
+        eps = laba / saham if saham > 0 else 0.0
+        bvps = ekuitas / saham if saham > 0 else 0.0
 
         st.write(f"**EPS** = {rp_ringkas(laba)} / {fmt(saham, 0)} lembar = {rp(eps)}")
         st.write(f"**BVPS** = {rp_ringkas(ekuitas)} / {fmt(saham, 0)} lembar = {rp(bvps)}")
@@ -438,6 +459,11 @@ def metode_graham():
                 return
 
     harga_pasar = minta_float_st("Harga pasar saat ini per lembar (isi 0 untuk melewati)", minimum=0, default=0)
+
+    # Pastikan eps, bvps, dan harga_pasar adalah float
+    eps = float(eps) if eps is not None else 0.0
+    bvps = float(bvps) if bvps is not None else 0.0
+    harga_pasar = float(harga_pasar) if harga_pasar is not None else 0.0
 
     if eps <= 0 or bvps <= 0:
         st.error("❌ Graham Number tidak bisa dihitung")
@@ -568,7 +594,18 @@ def metode_dcf():
 
     harga_pasar = minta_float_st("Harga pasar saat ini per lembar (isi 0 untuk melewati)", minimum=0, default=0, step=1.0)
 
-    wacc, g, g_term = wacc_p / 100, g_p / 100, g_term_p / 100
+    # Pastikan semua nilai adalah float sebelum operasi matematika
+    fcf0 = float(fcf0) if fcf0 is not None else 0.0
+    tahun = int(tahun) if tahun is not None else 5
+    wacc_p = float(wacc_p) if wacc_p is not None else 10.0
+    g_p = float(g_p) if g_p is not None else 5.0
+    g_term_p = float(g_term_p) if g_term_p is not None else 3.0
+    utang = float(utang) if utang is not None else 0.0
+    kas = float(kas) if kas is not None else 0.0
+    saham = float(saham) if saham is not None else 100.0
+    harga_pasar = float(harga_pasar) if harga_pasar is not None else 0.0
+
+    wacc, g, g_term = wacc_p / 100.0, g_p / 100.0, g_term_p / 100.0
 
     sub("Proyeksi Arus Kas")
 
@@ -726,10 +763,18 @@ def metode_pe_pbv():
 
     harga_pasar = minta_float_st("Harga pasar saat ini per lembar (isi 0 untuk melewati)", minimum=0, default=0, step=1.0)
 
-    bobot_pbv = 100 - bobot_pe
+    # Pastikan semua nilai adalah float sebelum operasi matematika
+    eps = float(eps) if eps is not None else 0.0
+    bvps = float(bvps) if bvps is not None else 0.0
+    pe_acuan = float(pe_acuan) if pe_acuan is not None else 15.0
+    pbv_acuan = float(pbv_acuan) if pbv_acuan is not None else 1.5
+    bobot_pe = float(bobot_pe) if bobot_pe is not None else 50.0
+    harga_pasar = float(harga_pasar) if harga_pasar is not None else 0.0
+
+    bobot_pbv = 100.0 - bobot_pe
     wajar_pe = eps * pe_acuan
     wajar_pbv = bvps * pbv_acuan
-    wajar_gabungan = (wajar_pe * bobot_pe + wajar_pbv * bobot_pbv) / 100
+    wajar_gabungan = (wajar_pe * bobot_pe + wajar_pbv * bobot_pbv) / 100.0
 
     sub("Perhitungan")
 
