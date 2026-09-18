@@ -463,12 +463,11 @@ def metode_dcf():
 """)
     sub("INPUT DATA")
 
-    pilihan_mode = ["1", "2"] if not yf else ["1", "2"]
+    pilihan_mode = ["1", "2"] if yf else ["1"]
     print("  Pilihan input data:")
     print("    1. Input manual semua data")
     if yf:
         print("    2. Ambil FCF, utang, kas, saham dari yfinance (WACC & growth manual)")
-        pilihan_mode = ["1", "2"]
 
     cara = minta_pilihan("  Pilih opsi (1-2):", pilihan_mode)
 
@@ -620,12 +619,11 @@ def metode_pe_pbv():
 """)
     sub("INPUT DATA")
 
-    pilihan_mode = ["1", "2"] if not yf else ["1", "2"]
+    pilihan_mode = ["1", "2"] if yf else ["1"]
     print("  Pilihan input data:")
     print("    1. Input manual EPS & BVPS")
     if yf:
         print("    2. Ambil data otomatis dari yfinance")
-        pilihan_mode = ["1", "2"]
 
     cara = minta_pilihan("  Pilih opsi (1-2):", pilihan_mode)
 
