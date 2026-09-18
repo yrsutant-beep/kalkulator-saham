@@ -1,0 +1,71 @@
+{
+  "security_policy": {
+    "version": "1.0",
+    "description": "Aturan keamanan dasar untuk proyek Kalkulator Saham",
+    "last_updated": "2026-09-18"
+  },
+  "data_validation": {
+    "ticker_format": {
+      "pattern": "^[A-Z]{1,5}\\.JK$",
+      "description": "Validasi format ticker saham Indonesia (contoh: BBCA.JK)",
+      "max_length": 10,
+      "required": true
+    },
+    "numeric_inputs": {
+      "allowed_range": {
+        "wacc": { "min": 0.5, "max": 20.0, "unit": "%" },
+        "growth_rate": { "min": -10.0, "max": 30.0, "unit": "%" },
+        "pe_ratio": { "min": 1.0, "max": 100.0 },
+        "pbv_ratio": { "min": 0.1, "max": 10.0 }
+      },
+      "description": "Range nilai yang diperbolehkan untuk input numerik"
+    }
+  },
+  "api_security": {
+    "yfinance": {
+      "timeout": 10,
+      "max_retries": 3,
+      "allowed_tickers": ["^[A-Z]{1,5}\\.JK$"],
+      "description": "Aturan keamanan untuk integrasi yfinance"
+    }
+  },
+  "file_security": {
+    "allowed_extensions": [".py", ".json", ".md", ".txt", ".csv"],
+    "blocked_extensions": [".exe", ".bat", ".sh", ".cmd", ".ps1"],
+    "max_file_size_mb": 100,
+    "description": "Aturan untuk file yang diakses/dibuat"
+  },
+  "data_handling": {
+    "sensitive_data": {
+      "never_log": ["api_keys", "passwords", "personal_data"],
+      "require_validation": true,
+      "description": "Data yang tidak boleh di-log atau disimpan"
+    },
+    "user_input": {
+      "sanitize": true,
+      "validate_length": { "min": 1, "max": 255 },
+      "strip_whitespace": true,
+      "description": "Pembersihan dan validasi input pengguna"
+    }
+  },
+  "error_handling": {
+    "display_errors": {
+      "show_generic_message": true,
+      "hide_stack_trace": true,
+      "log_full_details": true,
+      "description": "Jangan tampilkan detail teknis kepada pengguna"
+    }
+  },
+  "output_security": {
+    "prevent_injection": {
+      "escape_special_chars": true,
+      "sanitize_output": true,
+      "description": "Cegah injeksi dalam output"
+    }
+  },
+  "access_control": {
+    "local_only": true,
+    "require_authentication": false,
+    "description": "Program hanya berjalan lokal tanpa autentikasi"
+  }
+}

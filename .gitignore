@@ -1,0 +1,128 @@
+# ========================================
+# Python
+# ========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ========================================
+# Environment & Configuration
+# ========================================
+.env
+.env.local
+.env.*.local
+config.local.json
+*.secret
+*.key
+
+# ========================================
+# IDE & Editor
+# ========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# ========================================
+# Testing
+# ========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# ========================================
+# Logs
+# ========================================
+logs/
+*.log
+*.log.*
+debug.log
+
+# ========================================
+# Data & Cache
+# ========================================
+*.cache
+*.pkl
+*.pickle
+.cache/
+cache/
+__pycache__/
+
+# ========================================
+# OS & System
+# ========================================
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+*.lnk
+.directory
+
+# ========================================
+# Project Specific
+# ========================================
+data/private/
+backups/
+temp/
+tmp/
+*.temp
+output/
+results/
+
+# ========================================
+# Sensitive Data
+# ========================================
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+credentials.json
+auth_token
+api_keys.json
+
+# ========================================
+# Generated Files
+# ========================================
+*.xlsx~
+~$*.xlsx
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ========================================
+# Do NOT ignore these important files
+# ========================================
+!.gitkeep
+!.env.example
+!SECURITY.md
+!security-rules.json
